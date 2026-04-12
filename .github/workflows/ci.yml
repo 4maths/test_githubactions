@@ -7,9 +7,9 @@ on:
     branches: [ main, develop ]
 
 jobs:
+  # Cột mốc 1: Job chính xây dựng ứng dụng (Giữ nguyên của bạn không thay đổi)
   build:
     runs-on: ubuntu-latest
-
     steps:
     - uses: actions/checkout@v3
 
@@ -32,3 +32,43 @@ jobs:
       with:
         name: compiled-binary
         path: test
+
+  # Cột mốc 2: Job mới được mình gắn thêm dành riêng cho thằng Cảnh Sát AI (Hoạt động cho Pull Request)
+  ai-review:
+    # Lệnh này yêu cầu job ai-review chỉ chạy khi luồng Build phía trên đã thành công, rớt thì không review
+    needs: build
+    if: github.event_name == 'pull_request' # Chỉ kích hoạt khi mở PR
+    runs-on: ubuntu-latest
+    
+    # Bắt buộc thêm quyền này thì bot mới được phép bình luận vào PR
+    permissions:
+      contents: read
+      pull-requests: write 
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install AI Tool
+        # CHÚ Ý SỬA CHỖ NÀY: Hãy thay link dưới đây bằng đường dẫn GitHub repo chứa tool aicicd mà bạn vừa clone
+        run: pip install git+https://github.com/Ten-Tai-Khoan/ten-repo-aicicd.git
+        
+      - name: Environment Variables
+        run: |
+          echo "PR_NUMBER=${{ github.event.pull_request.number }}" >> $GITHUB_ENV
+          echo "REPO_NAME=${{ github.repository }}" >> $GITHUB_ENV
+
+            - name: AI PR Review code
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }} 
+        run: |
+          aicicd fetch --source github --repo ${{ env.REPO_NAME }} --pr ${{ env.PR_NUMBER }} --out-dir ./payload
+          aicicd pr-review --input ./payload/diff.txt --format markdown --output review.md
+          aicicd publish --platform github --repo ${{ env.REPO_NAME }} --pr ${{ env.PR_NUMBER }} --file review.md
+
