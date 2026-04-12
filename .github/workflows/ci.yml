@@ -63,10 +63,10 @@ jobs:
           echo "PR_NUMBER=${{ github.event.pull_request.number }}" >> $GITHUB_ENV
           echo "REPO_NAME=${{ github.repository }}" >> $GITHUB_ENV
 
-            - name: AI PR Review code
+      - name: AI PR Review code
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }} 
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
         run: |
           aicicd fetch --source github --repo ${{ env.REPO_NAME }} --pr ${{ env.PR_NUMBER }} --out-dir ./payload
           aicicd pr-review --input ./payload/diff.txt --format markdown --output review.md
