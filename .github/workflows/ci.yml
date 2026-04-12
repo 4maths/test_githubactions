@@ -56,7 +56,7 @@ jobs:
 
       - name: Install AI Tool
         # CHÚ Ý SỬA CHỖ NÀY: Hãy thay link dưới đây bằng đường dẫn GitHub repo chứa tool aicicd mà bạn vừa clone
-        run: pip install git+https://github.com/Ten-Tai-Khoan/ten-repo-aicicd.git
+        run: pip install https://github.com/4maths/ai-cicd-assistant
         
       - name: Environment Variables
         run: |
