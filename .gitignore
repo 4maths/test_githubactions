@@ -1,0 +1,19 @@
+# Compiled binaries
+*.o
+*.out
+test
+*.exe
+*.a
+*.so
+*.dylib
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Build directories
+build/
+dist/
