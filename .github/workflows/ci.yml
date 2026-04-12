@@ -7,7 +7,7 @@ on:
     branches: [ main, develop ]
 
 jobs:
-  # Cột mốc 1: Job chính xây dựng ứng dụng (Giữ nguyên của bạn không thay đổi)
+  # Cột mốc 1: Job chính xây dựng ứng dụng
   build:
     runs-on: ubuntu-latest
     steps:
@@ -33,14 +33,13 @@ jobs:
         name: compiled-binary
         path: test
 
-  # Cột mốc 2: Job mới được mình gắn thêm dành riêng cho thằng Cảnh Sát AI (Hoạt động cho Pull Request)
+  # Cột mốc 2: Cảnh sát AI Review (chạy khi có Pull Request)
   ai-review:
-    # Lệnh này yêu cầu job ai-review chỉ chạy khi luồng Build phía trên đã thành công, rớt thì không review
     needs: build
-    if: github.event_name == 'pull_request' # Chỉ kích hoạt khi mở PR
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     
-    # Bắt buộc thêm quyền này thì bot mới được phép bình luận vào PR
+    # Quyền bắt buộc để bot được bình luận
     permissions:
       contents: read
       pull-requests: write 
@@ -55,7 +54,6 @@ jobs:
           python-version: '3.10'
 
       - name: Install AI Tool
-        # CHÚ Ý SỬA CHỖ NÀY: Hãy thay link dưới đây bằng đường dẫn GitHub repo chứa tool aicicd mà bạn vừa clone
         run: pip install git+https://github.com/4maths/ai-cicd-assistant.git
         
       - name: Environment Variables
@@ -63,12 +61,26 @@ jobs:
           echo "PR_NUMBER=${{ github.event.pull_request.number }}" >> $GITHUB_ENV
           echo "REPO_NAME=${{ github.repository }}" >> $GITHUB_ENV
 
-      - name: AI PR Review code
+      # Tách riêng bước Fetch để lấy mã nguồn
+      - name: Lấy mã nguồn thay đổi (Fetch)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
         run: |
           aicicd fetch --source github --repo ${{ env.REPO_NAME }} --pr ${{ env.PR_NUMBER }} --out-dir ./payload
-          aicicd pr-review --input ./payload/diff.txt --format json
-          aicicd publish --platform github --repo ${{ env.REPO_NAME }} --pr ${{ env.PR_NUMBER }} --file review.md
 
+      # Thầy giáo AI bắt đầu chấm điểm
+      - name: AI soi lỗi
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        run: |
+          # Dùng lại format markdown và bắt buộc lưu vào file review.md
+          # Ở bước này lệnh có thể bị văng Exit code 1 để đánh trượt PR nếu code có lỗi
+          aicicd pr-review --input ./payload/diff.txt --format markdown --output review.md
+
+      # Kêu bot đi comment. Chữ if: always() giúp nó luôn chạy dù bước trước bị báo đỏ
+      - name: Phát loa Comment Review
+        if: always() 
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          aicicd publish --platform github --repo ${{ env.REPO_NAME }} --pr ${{ env.PR_NUMBER }} --file review.md
