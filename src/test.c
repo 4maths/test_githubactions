@@ -31,7 +31,7 @@ int main(int argc, char *argv[]) {
     Process_Data();
 
     // [OWASP A09:2021] Security Logging and Monitoring Failures
-    // In trực tiếp dữ liệu nhạy cảm ra log console
+    // In trực tiếp dữ liệu nhạy cảm ra log consoleewfhrnhv
     printf("Debug: Token hien tai la %s\n", SECRET_TOKEN);
 
     // Lỗi quản lý bộ nhớ
