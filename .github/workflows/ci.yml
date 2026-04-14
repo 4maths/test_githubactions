@@ -1,7 +1,13 @@
 name: AI Assistant Code Review
 on:
   pull_request:
-    types: [opened, synchronize] # Chạy khi tạo mới hoặc update code trong PR
+    types: [opened, synchronize]
+
+# --- DÒNG QUAN TRỌNG NHẤT LÀ ĐÂY (PHẢI CÓ) ---
+permissions:
+  pull-requests: write
+  contents: read
+# --------------------------------------------
 
 jobs:
   ai_job:
@@ -19,7 +25,6 @@ jobs:
 
       - name: Install Tool
         run: |
-          # Clone tool từ repo (phiên bản ổn định)
           git clone https://github.com/4maths/ai-cicd-assistant.git
           cd ai-cicd-assistant
           pip install -e .
@@ -29,13 +34,13 @@ jobs:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # 1. Lấy diff
+          # 1. Lấy dữ liệu
           aicicd fetch --source github --repo ${{ github.repository }} --pr ${{ github.event.pull_request.number }} --out-dir ./payload
           
-          # 2. Quét (Dùng || true để không làm sập pipeline, giúp lệnh publish phía sau luôn chạy)
+          # 2. Quét (Dùng || true để luôn chạy tiếp lệnh Publish)
           aicicd security-scan --input ./payload/diff.txt --metadata ./payload/metadata.json --format markdown --output security.md || true
           aicicd pr-review --input ./payload/diff.txt --format markdown --output review.md || true
           
-          # 3. Đăng comment lên GitHub
+          # 3. Đăng comment lên GitHub (Lệnh này sẽ thành công nhờ có dòng permissions ở trên)
           aicicd publish --platform github --repo ${{ github.repository }} --pr ${{ github.event.pull_request.number }} --file security.md
           aicicd publish --platform github --repo ${{ github.repository }} --pr ${{ github.event.pull_request.number }} --file review.md
