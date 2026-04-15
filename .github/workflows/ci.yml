@@ -1,61 +1,49 @@
-name: AI CI/CD Assistant Checks
+name: AI assistant - All-in-one Test
 on:
   pull_request:
     types: [opened, synchronize]
-  # Cho phép chạy thủ công để test
+  # Cho phép kích hoạt thủ công từ tab Actions
   workflow_dispatch:
 permissions:
   pull-requests: write
   contents: read
 jobs:
-  ai-assistant-check:
+  ai-review-demo:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Code
+      - name: 1. Checkout mã nguồn
         uses: actions/checkout@v3
         with:
           fetch-depth: 0
-      - name: Setup Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.10'
-      - name: Install AI Tool
+      - name: 2. Cài đặt AI Tool (Bản mới nhất vừa cập nhật)
         run: |
           pip install git+https://github.com/4maths/ai-cicd-assistant.git
-      - name: 1. Fetch PR Data
-        id: fetch
+      - name: 3. Lấy dữ liệu PR (Diff)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Lấy thông tin PR
           aicicd fetch --source github --repo ${{ github.repository }} --pr ${{ github.event.pull_request.number }} --out-dir ./payload
-          
-          # Kiểm tra xem diff có dữ liệu không
-          if [ ! -s ./payload/diff.txt ]; then
-            echo "::warning::Bản diff trống, AI Review sẽ không có dữ liệu để phân tích."
-          fi
-      - name: 2. AI Security Scan
+      - name: 4. Chạy Security Scanner (Quét bảo mật)
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
         run: |
           aicicd security-scan --input ./payload/diff.txt --metadata ./payload/metadata.json --format markdown --output security.md || true
-      - name: 3. AI PR Review
+      - name: 5. Chạy PR Review (Nhận xét code)
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
         run: |
           aicicd pr-review --input ./payload/diff.txt --format markdown --output review.md || true
-      - name: 4. Deploy Guard (Smoke Test)
+      - name: 6. Chạy Deploy Guard (Kiểm tra trạng thái triển khai)
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
         run: |
-          # Giả sử bạn kiểm tra một môi trường test hoặc production
-          # Thay URL bên dưới bằng URL thật cần check
-          aicicd deploy-guard --url "https://google.com" --format markdown --output deploy.md || true
-      - name: 5. Publish Reports
+          # Thử nghiệm với Google để kiểm tra xem tính năng Deploy Guard hoạt động ra sao
+          aicicd deploy-guard --url "https://www.google.com" --format markdown --output deploy.md || true
+      - name: 7. Đăng kết quả lên Pull Request
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Đăng kết quả lên PR
+          # Công cụ sẽ tự động đăng comment vào PR của bạn
           [ -f security.md ] && aicicd publish --platform github --repo ${{ github.repository }} --pr ${{ github.event.pull_request.number }} --file security.md
           [ -f review.md ] && aicicd publish --platform github --repo ${{ github.repository }} --pr ${{ github.event.pull_request.number }} --file review.md
           [ -f deploy.md ] && aicicd publish --platform github --repo ${{ github.repository }} --pr ${{ github.event.pull_request.number }} --file deploy.md
