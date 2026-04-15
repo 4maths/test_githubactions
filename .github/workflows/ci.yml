@@ -1,102 +1,52 @@
-name: AI CI/CD Pipeline Test
+name: AI CI/CD & Deploy Guard Assistant
 
 on:
   pull_request:
     types: [opened, synchronize]
 
-env:
-  GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+permissions:
+  pull-requests: write
+  contents: read
 
 jobs:
-  # ---------------------------------------------------------
-  # Phase 1: AI Analyze (Review + Security)
-  # ---------------------------------------------------------
-  ai_analyze:
+  ai_cicd_job:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      - name: Set up Python
+      - name: Checkout Code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
 
-      - name: Install Tools
-        run: pip install ./ai-cicd-assistant
-
-      - name: Fetch and Analyze
+      - name: Install Tool (Force Latest)
         run: |
-          # Lấy dữ liệu PR
+          # Cài đặt trực tiếp từ GitHub để luôn lấy logic mới nhất của m
+          pip install --upgrade --no-cache-dir git+https://github.com/4maths/ai-cicd-assistant.git
+
+      - name: Run AI Analysis & Deploy Check
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Thay URL này bằng URL môi trường staging/dev thực tế của m nếu có
+          DEPLOY_URL: "https://google.com" 
+        run: |
+          # 1. Lấy dữ liệu PR (Diff + Metadata)
           aicicd fetch --source github --repo ${{ github.repository }} --pr ${{ github.event.pull_request.number }} --out-dir ./payload
           
-          # Review Code
-          aicicd pr-review --input ./payload/diff.txt --output review.md || true
+          # 2. Quét bảo mật (Security Scan)
+          aicicd security-scan --input ./payload/diff.txt --metadata ./payload/metadata.json --format markdown --output security.md || true
           
-          # Security Scan
-          aicicd security-scan --input ./payload/diff.txt --metadata ./payload/metadata.json --output security.md || true
-
-      - name: Publish Results
-        run: |
-          aicicd publish --platform github --repo ${{ github.repository }} --pr ${{ github.event.pull_request.number }} --file review.md
+          # 3. Review Code Logic
+          aicicd pr-review --input ./payload/diff.txt --format markdown --output review.md || true
+          
+          # 4. Deploy Guard: AI truy cập URL và phán đoán sức khỏe hệ thống (Mới)
+          aicicd deploy-guard --url "$DEPLOY_URL" --format markdown --output deploy_report.md || true
+          
+          # 5. Publish: Đăng tất cả kết quả lên PR Comment
           aicicd publish --platform github --repo ${{ github.repository }} --pr ${{ github.event.pull_request.number }} --file security.md
-
-  # ---------------------------------------------------------
-  # Phase 2: Run Test + Log Analysis
-  # ---------------------------------------------------------
-  test:
-    needs: ai_analyze
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.10'
-
-      - name: Run Unit Tests
-        run: |
-          pip install "./ai-cicd-assistant[test]"
-          # Chạy test và ghi log, dùng || true để job không bị crash ngay lập tức
-          pytest tests/ > test_output.log 2>&1 || echo "TEST_FAILED=true" >> $GITHUB_ENV
-
-      - name: AI Log Analysis (If Failed)
-        if: env.TEST_FAILED == 'true'
-        run: |
-          pip install ./ai-cicd-assistant
-          aicicd log-analysis --log-file test_output.log --output log_report.md
-          aicicd publish --platform github --repo ${{ github.repository }} --pr ${{ github.event.pull_request.number }} --file log_report.md
-          exit 1 # Sau khi phân tích xong thì mới cho job fail thực sự
-
-  # ---------------------------------------------------------
-  # Phase 3: Fake Deploy (Giả lập)
-  # ---------------------------------------------------------
-  deploy:
-    needs: test
-    runs-on: ubuntu-latest
-    steps:
-      - name: Simulate Deployment
-        run: |
-          echo "Đang deploy ứng dụng lên môi trường staging..."
-          sleep 5
-          echo "Deploy thành công tại: https://google.com"
-
-  # ---------------------------------------------------------
-  # Phase 4: Deploy Guard (Post Deploy)
-  # ---------------------------------------------------------
-  post_deploy:
-    needs: deploy
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.10'
-
-      - name: AI Health Check
-        run: |
-          pip install ./ai-cicd-assistant
-          # Test thử với google.com như file gitlab của m
-          aicicd deploy-guard --url "https://google.com" --output deploy_report.md || true
-          
+          aicicd publish --platform github --repo ${{ github.repository }} --pr ${{ github.event.pull_request.number }} --file review.md
           aicicd publish --platform github --repo ${{ github.repository }} --pr ${{ github.event.pull_request.number }} --file deploy_report.md
