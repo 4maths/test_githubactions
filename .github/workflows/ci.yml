@@ -1,98 +1,102 @@
-name: AI Assistant Code Review
+name: AI CI/CD Pipeline Test
 
 on:
   pull_request:
     types: [opened, synchronize]
 
-permissions:
-  pull-requests: write
-  contents: read
+env:
+  GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
 jobs:
-  ai_job:
+  # ---------------------------------------------------------
+  # Phase 1: AI Analyze (Review + Security)
+  # ---------------------------------------------------------
+  ai_analyze:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@v3
+      - name: Set up Python
+        uses: actions/setup-python@v4
         with:
           python-version: '3.10'
 
-      - name: Install Tool
-        run: |
-          pip install --upgrade pip
-          pip install --upgrade --no-cache-dir git+https://github.com/4maths/ai-cicd-assistant.git
+      - name: Install Tools
+        run: pip install ./ai-cicd-assistant
 
-      - name: Fetch PR payload
-        env:
-          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Fetch and Analyze
         run: |
-          aicicd fetch \
-            --source github \
-            --repo ${{ github.repository }} \
-            --pr ${{ github.event.pull_request.number }} \
-            --out-dir ./payload
+          # Lấy dữ liệu PR
+          aicicd fetch --source github --repo ${{ github.repository }} --pr ${{ github.event.pull_request.number }} --out-dir ./payload
+          
+          # Review Code
+          aicicd pr-review --input ./payload/diff.txt --output review.md || true
+          
+          # Security Scan
+          aicicd security-scan --input ./payload/diff.txt --metadata ./payload/metadata.json --output security.md || true
 
-      - name: Debug payload
+      - name: Publish Results
         run: |
-          echo "=== diff.txt ==="
-          cat ./payload/diff.txt || true
-          echo ""
-          echo "=== metadata.json ==="
-          cat ./payload/metadata.json || true
+          aicicd publish --platform github --repo ${{ github.repository }} --pr ${{ github.event.pull_request.number }} --file review.md
+          aicicd publish --platform github --repo ${{ github.repository }} --pr ${{ github.event.pull_request.number }} --file security.md
 
-      - name: Run Security Scan
-        env:
-          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          aicicd security-scan \
-            --input ./payload/diff.txt \
-            --metadata ./payload/metadata.json \
-            --format markdown \
-            --output security.md
+  # ---------------------------------------------------------
+  # Phase 2: Run Test + Log Analysis
+  # ---------------------------------------------------------
+  test:
+    needs: ai_analyze
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
 
-      - name: Run PR Review
-        env:
-          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Run Unit Tests
         run: |
-          aicicd pr-review \
-            --input ./payload/diff.txt \
-            --metadata ./payload/metadata.json \
-            --format markdown \
-            --output review.md
+          pip install "./ai-cicd-assistant[test]"
+          # Chạy test và ghi log, dùng || true để job không bị crash ngay lập tức
+          pytest tests/ > test_output.log 2>&1 || echo "TEST_FAILED=true" >> $GITHUB_ENV
 
-      - name: Debug outputs
+      - name: AI Log Analysis (If Failed)
+        if: env.TEST_FAILED == 'true'
         run: |
-          echo "=== security.md ==="
-          cat security.md || true
-          echo ""
-          echo "=== review.md ==="
-          cat review.md || true
+          pip install ./ai-cicd-assistant
+          aicicd log-analysis --log-file test_output.log --output log_report.md
+          aicicd publish --platform github --repo ${{ github.repository }} --pr ${{ github.event.pull_request.number }} --file log_report.md
+          exit 1 # Sau khi phân tích xong thì mới cho job fail thực sự
 
-      - name: Publish Security Comment
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  # ---------------------------------------------------------
+  # Phase 3: Fake Deploy (Giả lập)
+  # ---------------------------------------------------------
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Simulate Deployment
         run: |
-          aicicd publish \
-            --platform github \
-            --repo ${{ github.repository }} \
-            --pr ${{ github.event.pull_request.number }} \
-            --file security.md
+          echo "Đang deploy ứng dụng lên môi trường staging..."
+          sleep 5
+          echo "Deploy thành công tại: https://google.com"
 
-      - name: Publish Review Comment
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  # ---------------------------------------------------------
+  # Phase 4: Deploy Guard (Post Deploy)
+  # ---------------------------------------------------------
+  post_deploy:
+    needs: deploy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: AI Health Check
         run: |
-          aicicd publish \
-            --platform github \
-            --repo ${{ github.repository }} \
-            --pr ${{ github.event.pull_request.number }} \
-            --file review.md
+          pip install ./ai-cicd-assistant
+          # Test thử với google.com như file gitlab của m
+          aicicd deploy-guard --url "https://google.com" --output deploy_report.md || true
+          
+          aicicd publish --platform github --repo ${{ github.repository }} --pr ${{ github.event.pull_request.number }} --file deploy_report.md
