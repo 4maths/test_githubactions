@@ -2,7 +2,7 @@
 #include <string.h>
 #include <stdlib.h>
 
-// [OWASP A02:2021] Cryptographic Failures
+// [OWASP A02:2021] Cryptographic Failuresd
 // Để lộ Secret Key và dùng thuật toán yếu (giả định)
 const char* SECRET_TOKEN = "ghp_BadPracticeAdminToken12345";
 
