@@ -1,4 +1,5 @@
 name: AI Assistant Code Review
+
 on:
   pull_request:
     types: [opened, synchronize]
@@ -10,36 +11,88 @@ permissions:
 jobs:
   ai_job:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
       - name: Setup Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
-      - name: Install Tool (Force Latest)
+      - name: Install Tool
         run: |
-          # Cài đặt trực tiếp từ URL GitHub để ép lấy bản mới nhất, không dùng cache
+          pip install --upgrade pip
           pip install --upgrade --no-cache-dir git+https://github.com/4maths/ai-cicd-assistant.git
 
-      - name: Run AI Steps
+      - name: Fetch PR payload
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # 1. Lấy dữ liệu PR
-          aicicd fetch --source github --repo ${{ github.repository }} --pr ${{ github.event.pull_request.number }} --out-dir ./payload
-          
-          # 2. Quét bảo mật (|| true để luôn chạy tiếp)
-          aicicd security-scan --input ./payload/diff.txt --metadata ./payload/metadata.json --format markdown --output security.md || true
-          
-          # 3. Review Code (|| true để luôn chạy tiếp)
-          aicicd pr-review --input ./payload/diff.txt --format markdown --output review.md ||
-          
-          # 4. Đăng kết quả lên PR
-          aicicd publish --platform github --repo ${{ github.repository }} --pr ${{ github.event.pull_request.number }} --file security.md
-          aicicd publish --platform github --repo ${{ github.repository }} --pr ${{ github.event.pull_request.number }} --file review.md
+          aicicd fetch \
+            --source github \
+            --repo ${{ github.repository }} \
+            --pr ${{ github.event.pull_request.number }} \
+            --out-dir ./payload
+
+      - name: Debug payload
+        run: |
+          echo "=== diff.txt ==="
+          cat ./payload/diff.txt || true
+          echo ""
+          echo "=== metadata.json ==="
+          cat ./payload/metadata.json || true
+
+      - name: Run Security Scan
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          aicicd security-scan \
+            --input ./payload/diff.txt \
+            --metadata ./payload/metadata.json \
+            --format markdown \
+            --output security.md
+
+      - name: Run PR Review
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          aicicd pr-review \
+            --input ./payload/diff.txt \
+            --metadata ./payload/metadata.json \
+            --format markdown \
+            --output review.md
+
+      - name: Debug outputs
+        run: |
+          echo "=== security.md ==="
+          cat security.md || true
+          echo ""
+          echo "=== review.md ==="
+          cat review.md || true
+
+      - name: Publish Security Comment
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          aicicd publish \
+            --platform github \
+            --repo ${{ github.repository }} \
+            --pr ${{ github.event.pull_request.number }} \
+            --file security.md
+
+      - name: Publish Review Comment
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          aicicd publish \
+            --platform github \
+            --repo ${{ github.repository }} \
+            --pr ${{ github.event.pull_request.number }} \
+            --file review.md
