@@ -38,7 +38,7 @@ jobs:
           aicicd security-scan --input ./payload/diff.txt --metadata ./payload/metadata.json --format markdown --output security.md || true
           
           # 3. Review Code (|| true để luôn chạy tiếp)
-          aicicd pr-review --input ./payload/diff.txt --format markdown --output review.md || true
+          aicicd pr-review --input ./payload/diff.txt --format markdown --output review.md ||
           
           # 4. Đăng kết quả lên PR
           aicicd publish --platform github --repo ${{ github.repository }} --pr ${{ github.event.pull_request.number }} --file security.md
