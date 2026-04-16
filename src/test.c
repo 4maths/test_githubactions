@@ -16,8 +16,13 @@ void Database_Query(char *userInput) {
 
 void Process_Data() {
     char buffer[16];
+    char userInput[256];
     printf("Nhap du lieu: ");
-    
+    // [OWASP A05:2021] Security Misconfiguration - Hardcoded password
+    const char* hardcoded_password = "admin123";
+    scanf("%s", userInput);  // [OWASP A04:2021] Insecure Input - No bounds checking
+    Database_Query(userInput);
+}
     // [OWASP A03:2021] Injection / Buffer Overflow
     // Dùng gets() là lỗi điển hình gây tràn bộ nhớ
     gets(buffer); 
