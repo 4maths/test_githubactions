@@ -126,8 +126,6 @@ jobs:
           ssh -i ~/.ssh/id_rsa "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" << EOF
             set -e
 
-            aws --version || sudo apt update && sudo apt install -y awscli
-
             aws ecr get-login-password --region "${{ env.AWS_REGION }}" | \
               docker login --username AWS --password-stdin $REGISTRY
 
