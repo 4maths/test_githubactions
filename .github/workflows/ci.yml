@@ -1,49 +1,144 @@
-name: AI assistant - All-in-one Test
+name: AI assistant - CI CD
+
 on:
   pull_request:
     types: [opened, synchronize]
-  # Cho phép kích hoạt thủ công từ tab Actions
+  push:
+    branches:
+      - main
   workflow_dispatch:
+
 permissions:
   pull-requests: write
   contents: read
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REPOSITORY: ai-assistant
+  CONTAINER_NAME: ai-assistant
+  APP_PORT: 3000
+
 jobs:
   ai-review-demo:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+
     steps:
       - name: 1. Checkout mã nguồn
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: 2. Cài đặt AI Tool (Bản mới nhất vừa cập nhật)
+
+      - name: 2. Cài đặt AI Tool
         run: |
-          pip install git+https://github.com/4maths/ai-cicd-assistant.git
+          python -m pip install --upgrade pip
+          pip install --upgrade --force-reinstall git+https://github.com/4maths/ai-cicd-assistant.git
+          aicicd --version
+
       - name: 3. Lấy dữ liệu PR (Diff)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          aicicd fetch --source github --repo ${{ github.repository }} --pr ${{ github.event.pull_request.number }} --out-dir ./payload
-      - name: 4. Chạy Security Scanner (Quét bảo mật)
+          aicicd fetch \
+            --source github \
+            --repo "${{ github.repository }}" \
+            --pr "${{ github.event.pull_request.number }}" \
+            --out-dir ./payload
+
+      - name: 4. Chạy Security Scanner
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
         run: |
-          aicicd security-scan --input ./payload/diff.txt --metadata ./payload/metadata.json --format markdown --output security.md || true
-      - name: 5. Chạy PR Review (Nhận xét code)
+          aicicd security-scan \
+            --input ./payload/diff.txt \
+            --metadata ./payload/metadata.json \
+            --format markdown \
+            --output security.md || true
+
+      - name: 5. Chạy PR Review
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
         run: |
-          aicicd pr-review --input ./payload/diff.txt --format markdown --output review.md || true
-      - name: 6. Chạy Deploy Guard (Kiểm tra trạng thái triển khai)
+          aicicd pr-review \
+            --input ./payload/diff.txt \
+            --format markdown \
+            --output review.md || true
+
+      - name: 6. Chạy Deploy Guard demo
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
         run: |
-          # Thử nghiệm với Google để kiểm tra xem tính năng Deploy Guard hoạt động ra sao
-          aicicd deploy-guard --url "https://www.google.com" --format markdown --output deploy.md || true
+          aicicd deploy-guard \
+            --url "https://www.google.com" \
+            --format markdown \
+            --output deploy.md || true
+
       - name: 7. Đăng kết quả lên Pull Request
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Công cụ sẽ tự động đăng comment vào PR của bạn
-          [ -f security.md ] && aicicd publish --platform github --repo ${{ github.repository }} --pr ${{ github.event.pull_request.number }} --file security.md
-          [ -f review.md ] && aicicd publish --platform github --repo ${{ github.repository }} --pr ${{ github.event.pull_request.number }} --file review.md
-          [ -f deploy.md ] && aicicd publish --platform github --repo ${{ github.repository }} --pr ${{ github.event.pull_request.number }} --file deploy.md
+          [ -f security.md ] && aicicd publish --platform github --repo "${{ github.repository }}" --pr "${{ github.event.pull_request.number }}" --file security.md
+          [ -f review.md ] && aicicd publish --platform github --repo "${{ github.repository }}" --pr "${{ github.event.pull_request.number }}" --file review.md
+          [ -f deploy.md ] && aicicd publish --platform github --repo "${{ github.repository }}" --pr "${{ github.event.pull_request.number }}" --file deploy.md
+
+  deploy-to-ec2:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - name: 1. Checkout mã nguồn
+        uses: actions/checkout@v4
+
+      - name: 2. Cấu hình AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: 3. Đăng nhập ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: 4. Build và push image lên ECR
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -t $REGISTRY/${{ env.ECR_REPOSITORY }}:$IMAGE_TAG ./app
+          docker tag $REGISTRY/${{ env.ECR_REPOSITORY }}:$IMAGE_TAG $REGISTRY/${{ env.ECR_REPOSITORY }}:latest
+          docker push $REGISTRY/${{ env.ECR_REPOSITORY }}:$IMAGE_TAG
+          docker push $REGISTRY/${{ env.ECR_REPOSITORY }}:latest
+
+      - name: 5. Tạo SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H "${{ secrets.EC2_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: 6. Deploy trên EC2
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          ssh -i ~/.ssh/id_rsa "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" << EOF
+            set -e
+
+            aws --version || sudo apt update && sudo apt install -y awscli
+
+            aws ecr get-login-password --region "${{ env.AWS_REGION }}" | \
+              docker login --username AWS --password-stdin $REGISTRY
+
+            docker pull $REGISTRY/${{ env.ECR_REPOSITORY }}:$IMAGE_TAG
+
+            docker stop ${{ env.CONTAINER_NAME }} || true
+            docker rm ${{ env.CONTAINER_NAME }} || true
+
+            docker run -d \
+              --name ${{ env.CONTAINER_NAME }} \
+              --restart always \
+              -p ${{ env.APP_PORT }}:${{ env.APP_PORT }} \
+              $REGISTRY/${{ env.ECR_REPOSITORY }}:$IMAGE_TAG
+          EOF

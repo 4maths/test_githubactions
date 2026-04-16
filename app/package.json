@@ -1,0 +1,15 @@
+{
+  "name": "ai-assistant-app",
+  "version": "1.0.0",
+  "description": "AI Assistant application deployed via GitHub Actions and AWS ECR",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "keywords": ["github-actions", "docker", "aws-ecr", "ci-cd"],
+  "author": "",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
