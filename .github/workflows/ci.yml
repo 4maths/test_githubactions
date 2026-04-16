@@ -33,7 +33,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install --upgrade --force-reinstall git+https://github.com/4maths/ai-cicd-assistant.git
-          aicicd --version
+          aicicd -h
 
       - name: 3. Lấy dữ liệu PR (Diff)
         env:
