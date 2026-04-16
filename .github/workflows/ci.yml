@@ -64,22 +64,12 @@ jobs:
             --format markdown \
             --output review.md || true
 
-      - name: 6. Chạy Deploy Guard demo
-        env:
-          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-        run: |
-          aicicd deploy-guard \
-            --url "https://www.google.com" \
-            --format markdown \
-            --output deploy.md || true
-
-      - name: 7. Đăng kết quả lên Pull Request
+      - name: 6. Đăng kết quả lên Pull Request
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           [ -f security.md ] && aicicd publish --platform github --repo "${{ github.repository }}" --pr "${{ github.event.pull_request.number }}" --file security.md
           [ -f review.md ] && aicicd publish --platform github --repo "${{ github.repository }}" --pr "${{ github.event.pull_request.number }}" --file review.md
-          [ -f deploy.md ] && aicicd publish --platform github --repo "${{ github.repository }}" --pr "${{ github.event.pull_request.number }}" --file deploy.md
 
   deploy-to-ec2:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -140,3 +130,26 @@ jobs:
               -p ${{ env.APP_PORT }}:${{ env.APP_PORT }} \
               $REGISTRY/${{ env.ECR_REPOSITORY }}:$IMAGE_TAG
           EOF
+
+      - name: 7. Health check app
+        run: |
+          sleep 5
+          for i in {1..30}; do
+            if curl -f http://${{ secrets.EC2_HOST }}:${{ env.APP_PORT }}/health > /dev/null 2>&1; then
+              echo "✓ App is healthy"
+              exit 0
+            fi
+            echo "Waiting for app... ($i/30)"
+            sleep 2
+          done
+          echo "✗ App health check failed"
+          exit 1
+
+      - name: 8. Deploy Guard - Check deployed app
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        run: |
+          aicicd deploy-guard \
+            --url "http://${{ secrets.EC2_HOST }}:${{ env.APP_PORT }}" \
+            --format markdown \
+            --output deploy.md || true
