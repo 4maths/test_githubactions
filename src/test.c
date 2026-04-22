@@ -2,47 +2,73 @@
 #include <string.h>
 #include <stdlib.h>
 
-// [OWASP A02:2021] Cryptographic Failuresd
-// Để lộ Secret Key và dùng thuật toán yếu (giả định)
-const char* SECRET_TOKEN = "ghp_BadPracticeAdminToken12345";
+/**
+ * AI CI/CD TEST FILE - VULNERABLE CODE SAMPLE
+ * This file contains intentional security flaws for testing purposes.
+ */
+
+// [OWASP A02:2021] Cryptographic Failures
+// Phát hiện qua Regex: Hardcoded Secret/Token
+const char* SECRET_TOKEN = "ghp_CriticalAdminAccessKey_9999999999";
+const char* DB_PASSWORD = "super_secret_password_123";
 
 // [OWASP A03:2021] Injection
-// Lỗi SQL Injection (giả lập qua string format)
+// Lỗi SQL Injection giả lập qua string concatenation
 void Database_Query(char *userInput) {
-    char query[256];
-    sprintf(query, "SELECT * FROM users WHERE name = '%s';", userInput); 
-    printf("Executing: %s\n", query);
+    char query[512];
+    // Rất nguy hiểm: Nối chuỗi trực tiếp vào câu lệnh SQL
+    sprintf(query, "SELECT * FROM users WHERE name = '%s' AND role = 'admin';", userInput); 
+    printf("[DB LOG] Executing: %s\n", query);
 }
 
-void Process_Data() {
+// [OWASP A03:2021] Command Injection
+void Execute_System_Command(char *cmd) {
+    char full_cmd[128];
+    // Cho phép thực thi lệnh hệ thống từ input người dùng
+    sprintf(full_cmd, "ls -la %s", cmd);
+    system(full_cmd); 
+}
+
+void Process_User_Data() {
     char buffer[16];
     char userInput[256];
-    printf("Nhap du lieu: ");
-    // [OWASP A05:2021] Security Misconfiguration - Hardcoded password
-    const char* hardcoded_password = "admin123";
-    scanf("%s", userInput);  // [OWASP A04:2021] Insecure Input - No bounds checking
+    
+    printf("Nhap ten nguoi dung: ");
+    // [OWASP A04:2021] Insecure Input - Không kiểm tra độ dài (Buffer Overflow)
+    scanf("%s", userInput); 
+    
     Database_Query(userInput);
-}
-    // [OWASP A03:2021] Injection / Buffer Overflow
-    // Dùng gets() là lỗi điển hình gây tràn bộ nhớ
+
+    printf("Nhap thong tin phu: ");
+    // [OWASP A03:2021] Buffer Overflow
+    // gets() là hàm cực kỳ nguy hiểm, luôn gây tràn bộ nhớ
     gets(buffer); 
+    
+    printf("Du lieu da nhan: %s\n", buffer);
 }
 
 int main(int argc, char *argv[]) {
+    printf("--- HE THONG KIEM THU BAO MAT AI CI/CD ---\n");
+
     if (argc > 1) {
-        Database_Query(argv[1]);
+        // Test Command Injection qua đối số dòng lệnh
+        Execute_System_Command(argv[1]);
     }
     
-    Process_Data();
+    Process_User_Data();
 
     // [OWASP A09:2021] Security Logging and Monitoring Failures
-    // In trực tiếp dữ liệu nhạy cảm ra log consoleewfhrnhv
-    printf("Debug: Token hien tai la %s\n", SECRET_TOKEN);
+    // Log thông tin nhạy cảm (Token) ra console/log file
+    printf("[DEBUG] Current Session Token: %s\n", SECRET_TOKEN);
+    printf("[DEBUG] Admin Password: %s\n", DB_PASSWORD);
 
-    // Lỗi quản lý bộ nhớ
-    char *leak = malloc(100);
-    strcpy(leak, "This will leak");
-    // Không có free(leak)
+    // [Memory Management] Lỗi rò rỉ bộ nhớ (Memory Leak)
+    char *leak = (char *)malloc(1024);
+    if (leak != NULL) {
+        strcpy(leak, "This data is never freed, causing a memory leak.");
+        printf("Memory allocated at: %p\n", (void*)leak);
+    }
+    // Quên free(leak)
 
     return 0;
 }
