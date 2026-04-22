@@ -1,41 +1,29 @@
-name: AI assistant - CI CD
+name: AI Assistant - PR Security & Review
 
 on:
   pull_request:
     types: [opened, synchronize]
-  push:
-    branches:
-      - main
   workflow_dispatch:
 
 permissions:
   pull-requests: write
   contents: read
 
-env:
-  AWS_REGION: us-east-1
-  ECR_REPOSITORY: ai-cicd-app
-  CONTAINER_NAME: ai-assistant
-  APP_PORT: 3000
-
 jobs:
-  ai-review-demo:
-    if: github.event_name == 'pull_request'
+  ai-assistant-check:
     runs-on: ubuntu-latest
-
     steps:
       - name: 1. Checkout mã nguồn
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 0 # Cần thiết để lấy diff cục bộ
 
       - name: 2. Cài đặt AI Tool
         run: |
           python -m pip install --upgrade pip
-          pip install --upgrade --force-reinstall git+https://github.com/4maths/ai-cicd-assistant.git
-          aicicd -h
+          pip install --upgrade git+https://github.com/4maths/ai-cicd-assistant.git
 
-      - name: 3. Lấy dữ liệu PR (Diff)
+      - name: 3. Lấy dữ liệu PR
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -45,122 +33,27 @@ jobs:
             --pr "${{ github.event.pull_request.number }}" \
             --out-dir ./payload
 
-      - name: 4. Chạy Security Scanner
-        env:
-          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      - name: 4. Chạy Security Scanner (Regex + FPT LLM)
         run: |
+          # Công cụ tự động chia nhỏ bản diff (chunking) để xử lý bản diff lớn
           aicicd security-scan \
+            --provider fpt \
             --input ./payload/diff.txt \
             --metadata ./payload/metadata.json \
             --format markdown \
             --output security.md || true
 
-      - name: 5. Chạy PR Review
-        env:
-          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      - name: 5. Chạy PR Review (FPT LLM)
         run: |
           aicicd pr-review \
+            --provider fpt \
             --input ./payload/diff.txt \
             --format markdown \
             --output review.md || true
 
-      - name: 6. Đăng kết quả lên Pull Request
+      - name: 6. Đăng báo cáo lên PR
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           [ -f security.md ] && aicicd publish --platform github --repo "${{ github.repository }}" --pr "${{ github.event.pull_request.number }}" --file security.md
           [ -f review.md ] && aicicd publish --platform github --repo "${{ github.repository }}" --pr "${{ github.event.pull_request.number }}" --file review.md
-
-  deploy-to-ec2:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    environment: production
-
-    steps:
-      - name: 1. Checkout mã nguồn
-        uses: actions/checkout@v4
-
-      - name: 2. Cấu hình AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: 3. Đăng nhập ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v2
-
-      - name: 4. Build và push image lên ECR
-        env:
-          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          IMAGE_TAG: ${{ github.sha }}
-        run: |
-          docker build -t $REGISTRY/${{ env.ECR_REPOSITORY }}:$IMAGE_TAG ./app
-          docker tag $REGISTRY/${{ env.ECR_REPOSITORY }}:$IMAGE_TAG $REGISTRY/${{ env.ECR_REPOSITORY }}:latest
-          docker push $REGISTRY/${{ env.ECR_REPOSITORY }}:$IMAGE_TAG
-          docker push $REGISTRY/${{ env.ECR_REPOSITORY }}:latest
-
-      - name: 5. Tạo SSH key
-        run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -H "${{ secrets.EC2_HOST }}" >> ~/.ssh/known_hosts
-
-      - name: 6. Deploy trên EC2
-        env:
-          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          IMAGE_TAG: ${{ github.sha }}
-        run: |
-          ssh -i ~/.ssh/id_rsa "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" << EOF
-            set -e
-
-            aws ecr get-login-password --region "${{ env.AWS_REGION }}" | \
-              docker login --username AWS --password-stdin $REGISTRY
-
-            docker pull $REGISTRY/${{ env.ECR_REPOSITORY }}:$IMAGE_TAG
-
-            docker stop ${{ env.CONTAINER_NAME }} || true
-            docker rm ${{ env.CONTAINER_NAME }} || true
-
-            docker run -d \
-              --name ${{ env.CONTAINER_NAME }} \
-              --restart always \
-              -p ${{ env.APP_PORT }}:${{ env.APP_PORT }} \
-              $REGISTRY/${{ env.ECR_REPOSITORY }}:$IMAGE_TAG
-          EOF
-
-      - name: 7. Health check app
-        run: |
-          sleep 5
-          for i in {1..30}; do
-            if curl -f http://${{ secrets.EC2_HOST }}:${{ env.APP_PORT }}/health > /dev/null 2>&1; then
-              echo "✓ App is healthy"
-              exit 0
-            fi
-            echo "Waiting for app... ($i/30)"
-            sleep 2
-          done
-          echo "✗ App health check failed"
-          exit 1
-
-      - name: 7. Install AI CICD tool
-        run: |
-          python -m pip install --upgrade pip
-          pip install git+https://github.com/4maths/ai-cicd-assistant.git
-
-      - name: 8. Deploy Guard - Check deployed app
-        env:
-          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-        run: |
-          aicicd deploy-guard \
-            --url "http://${{ secrets.EC2_HOST }}:${{ env.APP_PORT }}" \
-            --format markdown \
-            --output deploy.md || true
-
-      - name: 9. Upload deploy guard report
-        uses: actions/upload-artifact@v4
-        with:
-          name: deploy-guard-report
-          path: deploy.md
