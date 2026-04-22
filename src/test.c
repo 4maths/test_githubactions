@@ -57,8 +57,7 @@ int main(int argc, char *argv[]) {
     
     Process_User_Data();
 
-    // [OWASP A09:2021] Security Logging and Monitoring Failures
-    // Log thông tin nhạy cảm (Token) ra console/log file
+ 
     printf("[DEBUG] Current Session Token: %s\n", SECRET_TOKEN);
     printf("[DEBUG] Admin Password: %s\n", DB_PASSWORD);
 
