@@ -1,4 +1,4 @@
-name: AI assistant - CI CD
+name: AI assistant - CI CD (Groq Intelligence)
 
 on:
   push:
@@ -30,51 +30,57 @@ jobs:
           pip install --upgrade --force-reinstall git+https://github.com/4maths/ai-cicd-assistant.git
 
       # =========================
-      # Lấy diff
+      # Lấy dữ liệu thay đổi (Diff)
       # =========================
-      - name: 3. Lấy dữ liệu Diff
+      - name: 3. Lấy dữ liệu thay đổi
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           mkdir -p payload
-
           if [ "${{ github.event_name }}" = "pull_request" ]; then
+            # Sử dụng GitHub API thông minh (đã được fix lỗi Empty Diff)
             aicicd fetch \
               --source github \
               --repo "${{ github.repository }}" \
               --pr "${{ github.event.pull_request.number }}" \
               --out-dir ./payload
           else
+            # Lấy diff của commit cuối cùng cho các nhánh feature
             git diff HEAD~1 > ./payload/diff.txt
             echo "{}" > ./payload/metadata.json
           fi
 
       # =========================
-      # Security scan
+      # Security Scan (Regex + Groq)
       # =========================
-      - name: 4. Security Scan
+      - name: 4. Chạy Security Scan
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
         run: |
           aicicd security-scan \
+            --provider groq \
             --input ./payload/diff.txt \
             --metadata ./payload/metadata.json \
             --format markdown \
             --output security.md || true
 
       # =========================
-      # AI Review (FPT LLM)
+      # AI PR Review (Groq)
       # =========================
-      - name: 5. AI PR Review
+      - name: 5. Chạy AI PR Review
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
         run: |
           aicicd pr-review \
+            --provider groq \
             --input ./payload/diff.txt \
             --format markdown \
-            --output review.md \
-            --provider fpt || true
+            --output review.md || true
 
       # =========================
-      # Comment lên PR (nếu có PR)
+      # Đăng kết quả lên PR
       # =========================
-      - name: 6. Publish PR Comment
+      - name: 6. Đăng PR Comment
         if: github.event_name == 'pull_request'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -83,8 +89,10 @@ jobs:
           [ -f review.md ] && aicicd publish --platform github --repo "${{ github.repository }}" --pr "${{ github.event.pull_request.number }}" --file review.md
 
       # =========================
+      # Lưu trữ báo cáo (Artifacts)
       # =========================
-      - name: 7. Upload Report
+      - name: 7. Upload Reports
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: ai-review-report
